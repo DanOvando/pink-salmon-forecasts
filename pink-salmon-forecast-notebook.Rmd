@@ -1,0 +1,226 @@
+---
+title: "pink-salmon-forecast-notebook"
+author: "Dan Ovando"
+date: "3/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## launch call 2020-03-05
+
+Where do they see major areas for improvement?
+
+DEscribe the validation scheme in those forecast plots
+
+How much data realistically are we looking at here?
+
+Reason forecasting harvest not numbers?
+
+Andy piston
+
+Another dataset of chum salmon to discuss
+
+weak links - that survey takes place in one place and trying some experimental new trawls in lower chatahm and sumner straight. 
+
+Once those fish go out to sea information on juvenile abundance in southern southeast alaska
+
+Watson didn't find much that panned out, but did try satellite data, but just from that area?
+
+
+JUvenile survey did an august survey a june july and a may, but almost never in may
+
+but the peak is in june or july 
+
+missing the peak might be an issue with chum salmon
+
+survey started in 98
+
+reliable forecasts by subregion would be valuable 
+
+1960
+
+
+no offical forecast for chum (90% hatchery fish), and the hatcheris all do their own forecasts
+
+blob years mammoth returns of 3's, which messed up the forecast since things just came back early (bit 3 did not equal big 4)
+
+Can get us in contact with the Chum world 
+
+chum value has gone up a lot for processors - a lot more targeted fisheries for chum, particularly in bad pink years
+
+Data & survey are readily available NPASC documents
+
+Chums most of the information you'd have to go through the hatchery operators themselves, but they would probably be interested in collaborating 
+  
+DAIPAC
+
+marine envirnomental stuff moight have explained high survival in the boom years
+
+
+# exploring RAM
+
+
+```{r}
+  
+library(here)
+library(tidyverse)
+ if (file.exists(here("data", "ram.zip")) == FALSE) {
+    download.file(
+      "https://zenodo.org/record/4824192/files/RAMLDB%20v4.495.zip?download=1",
+      destfile = here("data", "ram.zip"),
+      mode = "wb"
+    )
+
+    unzip(here("data", "ram.zip"), exdir = here("data", "ram")) # unzip = 'unzip' needed for windows
+  }
+
+  ram_files <-
+    list.files(here("data", "ram", "R Data"), recursive = TRUE)
+
+  ram_files <- ram_files[str_detect(ram_files, ".RData")]
+
+  load(here("data", "ram", "R Data", ram_files[1]))
+
+  # process ram data ------------------------------------------------------------
+
+  stock <- stock %>%
+    left_join(area, by = "areaid")
+  
+  pink_stocks <- stock %>% 
+    filter(str_detect(tolower(scientificname),"oncorhynchus") & str_detect(tolower(commonname), "pink"))
+
+  # catches
+  ram_catches <- tcbest.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    as_tibble() %>%
+    gather(stockid, catch, -year)
+
+  # B/Bmsy
+  ram_b_v_bmsy <- divbpref.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    tibble() %>%
+    gather(stockid, b_v_bmsy, -year)
+
+
+  # U/Umsy
+  ram_u_v_umsy <- divupref.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    as_tibble() %>%
+    gather(stockid, u_v_umsy, -year)
+
+  # Effort
+  ram_effort <- effort.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    as_tibble() %>%
+    gather(stockid, effort, -year)
+
+  # biomass
+
+  ram_total_biomass <- tbbest.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    as_tibble() %>%
+    gather(stockid, total_biomass, -year)
+
+  
+  pink_bio <- ram_total_biomass %>% 
+    filter(stockid %in% unique(pink_stocks$stockid))
+  # ssb
+
+  ram_ss_biomass <- ssb.data %>%
+    mutate(year = rownames(.) %>% as.integer()) %>%
+    as_tibble() %>%
+    gather(stockid, ss_biomass, -year)
+
+
+   pink_ssb <- ram_ss_biomass %>% 
+    filter(stockid %in% unique(pink_stocks$stockid))
+   
+   a = pink_ssb %>%
+     group_by(stockid) %>%
+     mutate(has = any(!is.na(ss_biomass)),
+            ssb = scale(ss_biomass),
+            even = ifelse((year %% 2) == 0, "Even", "Odd")) %>%
+     ungroup() %>%
+     filter(has,
+            year > 1960) %>%
+     ggplot(aes(year, ssb, color = stockid)) +
+     geom_line(show.legend = FALSE, alpha = 0.5) + 
+     facet_wrap(~even)
+   
+   pink_catches <- ram_catches %>% 
+         filter(stockid %in% unique(pink_stocks$stockid))
+
+  # ssb
+  
+  ram_exp_rate <- ram_catches %>%
+    left_join(ram_total_biomass, by = c("stockid", "year")) %>%
+    mutate(exploitation_rate = catch / total_biomass) %>%
+    select(-catch,-total_biomass)
+
+  # put it together
+
+  ram_data <- ram_catches %>%
+    left_join(bioparams_values_views, by = "stockid") %>%
+    left_join(ram_b_v_bmsy, by = c("stockid", "year")) %>%
+    left_join(ram_u_v_umsy, by = c("stockid", "year")) %>%
+    left_join(ram_exp_rate, by = c("stockid", "year")) %>%
+    left_join(ram_effort, by = c("stockid", "year")) %>%
+    left_join(ram_total_biomass, by = c("stockid", "year")) %>%
+    left_join(ram_ss_biomass, by = c("stockid", "year")) %>%
+    left_join(stock, by = "stockid") %>%
+    select(stockid, scientificname, commonname, everything())
+
+
+  # create new variables
+
+  ram_data <- ram_data %>%
+    mutate(tb_v_tb0 = total_biomass / TB0,
+           ssb_v_ssb0 = ss_biomass / SSB0)
+
+  
+
+
+```
+
+# Check in with Jenny Morella (prince william sound)
+
+
+general overvie of pinks in PWS
+
+two different hatechery organizations, pWS unique in that hatchery is a big role in pinks
+
+Individual hatchery origin is findable
+
+Otololith lab is used to separate out hatchery vs. wild and which hatchery for the hatchery part
+
+If it's unmarked, it's wild. 
+
+Harvest component comes from that. Aerial survey informs the escapement. 
+
+Pink salmon stream length, observer efficiency per stream, and is used as the basis of an aerial survey program. Fly index streams, and then expand based on streams not observed and efficiency 
+
+In 2015 survey program was cut so reduced aerial survey down to a smaller number, messing with the old expansion thingy. 
+
+Escapement and escapement goals - 
+
+So the important thing is that there's a change in 2015 that makes things not directly comparable
+
+1960 is the total run
+
+Annual try relesase and hatchery forecasts are available on the hatchery group websites. Assume a fixed marine survival and basically extrapolate from fry release. 
+
+"a clearly defined geographical space, recognised, dedicated and managed, through legal or other effective means, to achieve the long-term conservation of nature with associated ecosystem services and cultural values"
+
+
+# Pinks
+
+Looking at precipitation as an effect 
+
+even or odd as two different models
+
+warm and wet years are good for pinks
+
+

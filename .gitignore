@@ -1,3 +1,15 @@
+# custom
+*.pdf
+*.xlsx
+*.csv
+*.Rproj
+*.docx
+*.doc
+data/*
+!/data/README
+results/*
+!/results/README
+
 # History files
 .Rhistory
 .Rapp.history

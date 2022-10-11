@@ -1,0 +1,883 @@
+---
+title: "Pink Salmon Forecasting Update"
+author: "Dan Ovando"
+editor: visual
+format:
+  pdf:
+    toc: true
+  html: default
+execute:
+  echo: false
+  message: false
+  warning: false
+bibliography: references.bib
+params:
+  run: "v0.3"
+  fit_forecasts: FALSE
+---
+
+## Background
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse) # kitchen sink of wrangling
+
+library(lubridate) # wrangle dates
+
+library(readr) # read in various formats
+
+library(readxl) # read in xlsx
+
+library(here) # construct robust relative paths
+
+library(tidymodels) # kitchen sink of predictive modeling tools
+
+library(furrr) # parallel processing for purrr
+
+library(ranger) # random forests
+
+library(rstanarm) # bayesian linear models
+
+library(ggdist)
+
+library(ggalt)
+
+cores <- 8 # cores for parallel processing
+
+functions <- list.files(here::here("functions")) # load functions
+
+purrr::walk(functions, ~ source(here::here("functions", .x)))
+
+future::plan(future::multisession, workers = cores) # set up parallel processing
+
+results_path <- file.path("results", params$run) # location for results
+
+if (!dir.exists(results_path)){
+  dir.create(results_path, recursive = TRUE)
+}
+fit_forecasts <- params$fit_forecasts # fit forecasts or load saved run
+
+theme_set(theme_minimal(base_size = 12)) # set theme for plots
+
+# seak --------------------------------------------------------------------
+# main file received from Andy Piston via email, file Southeast Alaska Pink Data for UW 2022
+# Also covariates received from Sara Miller primarily in var2021_final
+
+
+seak_raw <-
+  readxl::read_xlsx(
+    here("data", "Southeast Alaska Pink Data for UW 2022.xlsx"),
+    sheet = "Data1",
+    skip = 3,
+    # three blank header rows for some reason
+    n_max = 145 # weird things happen after 145 rows
+  ) %>%
+  janitor::clean_names()
+
+# create harvest layer
+seak_harvest <- seak_raw %>%
+  select(year, sse, nsei, nseo) %>%
+  pivot_longer(-year, values_to = "harvest", names_to = "subregion") %>%
+  mutate(harvest = as.numeric(harvest)) %>%
+  filter(!is.na(harvest))
+
+# create escapement layer
+seak_escape <- seak_raw %>%
+  select(year, sse_index, nsei_index, nseo_index) %>%
+  pivot_longer(-year, values_to = "escapement", names_to = "subregion") %>%
+  mutate(escapement = as.numeric(escapement),
+         subregion = str_remove_all(subregion, "_index")) %>% # clean up subregion name
+  filter(!is.na(escapement))
+
+# join harvest and escapement
+seak <- seak_escape %>%
+  left_join(seak_harvest, by = c("year", "subregion")) %>%
+  mutate(region = "seak",
+         returns = escapement + harvest) %>%
+  mutate(across(c(escapement, harvest, returns),  ~ .x * 1e6)) # convert out of millions of salmon
+
+seak_index <-   readxl::read_xlsx(here("data", "var2021_final.xlsx"),
+                                  sheet = "var2021_final") %>%
+  janitor::clean_names() %>%
+  select(year, cpu_ecal, isti20_mjj) %>%
+  rename(juvenile_index = cpu_ecal,
+         juvenile_sst =  isti20_mjj) %>%
+  arrange(year)
+  
+  seak_index_model_data <- seak_index %>% 
+  select(year, juvenile_index) %>% 
+  left_join(seak, by = "year") %>% 
+  filter(!is.na(returns))
+
+seak_index_model <-
+  ranger(juvenile_index ~ returns + subregion, data = seak_index_model_data)
+
+
+seak_index_prediction <- predict(seak_index_model, seak)
+
+seak_index_impute <-
+  data.frame(year = seak$year,
+             predicted_index = seak_index_prediction$predictions) %>%
+  group_by(year) %>%
+  summarise(predicted_index = mean(predicted_index))
+
+
+seak_index <- seak_index %>% 
+  right_join(seak_index_impute, by = "year") %>% 
+  arrange(year)
+
+seak_index$juvenile_index[is.na(seak_index$juvenile_index)] <- seak_index$predicted_index[is.na(seak_index$juvenile_index)]
+
+
+seak_index <-  seak_index %>% 
+  select(-predicted_index) %>% 
+  mutate(
+    juvenile_index_l1 = lag(juvenile_index),
+    juvenile_index_l2 = lag(juvenile_index, 2),
+    juvenile_index_l3 = lag(juvenile_index, 3),
+    juvenile_sst_l1 = lag(juvenile_sst),
+    juvenile_sst_l2 = lag(juvenile_sst, 2),
+    juvenile_sst_l3 = lag(juvenile_sst, 3)
+  )
+  # rename(year = j_year)
+
+
+
+# kodiak ------------------------------------------------------------------
+# received from Birch Foster via email, file "pink salmon data request C. Boatright"
+#
+
+kod_raw <-
+  readxl::read_xlsx(
+    here("data", "pink salmon data request C. Boatright.xlsx"),
+    sheet = "Kodiak Wild pinks",
+    skip = 1
+  ) %>%
+  janitor::clean_names()
+
+
+# create harvest layer
+kod_harvest <- kod_raw %>%
+  select(year_1, afognak_h:kmah) %>%
+  rename(year = year_1,
+         kma = kmah) %>% # looks like the correct subregion name is kma, the h is supposed to show harvest but got lost because CamelCase
+  pivot_longer(-year, names_to = "subregion", values_to = "harvest") %>%
+  mutate(subregion = str_remove_all(subregion, "_h"))
+
+# create escapement layer
+kod_escape <- kod_raw %>%
+  select(year_1:kmae) %>%
+  rename(year = year_1,
+         kma = kmae) %>% # looks like the correct subregion name is kma, the E is supposed to show escapement but got lost because CamelCase
+  pivot_longer(-year, names_to = "subregion", values_to = "escapement") %>%
+  mutate(subregion = str_remove_all(subregion, "_e"))
+
+
+
+# join together kodiak data
+kod <- kod_escape %>%
+  left_join(kod_harvest, by = c("year", "subregion")) %>%
+  mutate(region = "kod",
+         returns = escapement + harvest)
+
+
+# pws ---------------------------------------------------------------------
+# received from Jennifer Morella via email, file " pink forecast request"
+# CCP stands for  commercial common property fishery
+# HCR is hatchery cost recovery
+# Stream index is then "escapement", to a point
+# Total is then total return
+
+pws_raw <-
+  readxl::read_xlsx(here("data", "pink forecast request.xlsx"),
+                    sheet = "Sheet1") %>%
+  janitor::clean_names()
+
+pws <- pws_raw %>%
+  rename_with( ~ "escapement", starts_with("x134")) %>%
+  rename(year = run_year) %>%
+  mutate(across(starts_with("wild_"), as.numeric)) %>% # some problems with some manual NAs instead of blanks in raw file
+  mutate(across(where(is.numeric), ~ replace_na(.x, 0))) %>%
+  mutate(
+    harvest =
+      wild_ccp +
+      wild_hcr  +
+      wild_hatchery_rack_brood_and_post_brood_sales,
+    # per documentation wild harvests
+    returns = escapement + harvest
+  ) %>%
+  select(year, harvest, escapement, returns) %>%
+  mutate(region = "pws",
+         subregion = "pws")
+
+
+# all together ------------------------------------------------------------
+# pull all the pink data together
+
+pinks <- bind_rows(seak, kod, pws) %>%
+  mutate(cycle = ifelse(year %% 2 == 0, "even", "odd")) %>%
+  mutate(returns = returns / 1e6)  # turning into millions of salmon
+
+# add in additional data
+
+  pinks <- pinks %>%
+  left_join(seak_index, by = "year") 
+
+# quick exploratory plot
+pinks %>%
+  ggplot(aes(year, returns, fill = subregion)) +
+  geom_col() +
+  facet_wrap(~ region)
+
+pinks %>% 
+  ggplot(aes(juvenile_index, returns, color = subregion)) + 
+  geom_point() + 
+  geom_smooth(method ="lm") +
+  facet_wrap(~region)
+
+
+
+# explore -----------------------------------------------------------------
+
+
+pinks_tmp <- pinks %>% 
+  select(-contains("juvenile"))
+
+foo <- function(x, y) {
+  # generate arbitrary numbers of lags of returns per stock
+  y %>%
+    group_by(cycle, subregion, region) %>%
+    arrange(year) %>%
+    mutate("lag_{{x}}" := dplyr::lag(returns, x, order_by = year)) %>%
+    ungroup() %>%
+    select(contains("lag_"))
+  
+}
+
+pinks_tmp <- pinks_tmp %>%
+  group_by(cycle, subregion, region) %>%
+  arrange(year) %>%
+  bind_cols(map_dfc(1:10, foo, y = pinks_tmp)) %>% # bind on columns of lags per stock
+  rename_with( ~ str_remove_all(.x, "L"), starts_with("lag_")) %>% # remove L from number indicating how many lags back we are
+left_join(seak_index, by = "year") %>% 
+  mutate(across(where(is.numeric), ~ replace_na(.x, -999)))  # prepare for machine learning
+  
+
+# run a quick exploratory random forest
+exploratory_model <-
+  ranger(
+    returns ~ .,
+    data = pinks_tmp %>% select(returns, contains("region"), year, contains("lag_"), contains("juvenile")),
+    importance = "impurity_corrected"
+  )
+
+vip::vip(exploratory_model) # variable importance plot of random forest returns model
+
+
+# fit models --------------------------------------------------------------
+
+
+data <- pinks %>%
+  select(-escapement, -harvest) # pull out data needed to fit models
+
+# generate grid of candidate models for one-year-ahead forecasts from 2010 to most recent year, running both boosted regression trees and random forests, with and without "wide" format where every stock is a predictor of all other stocks.
+model_grid <-
+  tidyr::expand_grid(
+    test_year = 2010:max(pinks$year),
+    model_type = c("rand_forest"),
+    delta_returns = c(FALSE,TRUE),
+    run_wide = c(TRUE, FALSE)
+  )
+
+pinks$stock <- paste(pinks$subregion, pinks$cycle, sep = "_")
+
+write_rds(pinks, file = file.path(results_path,"pink_data.rds"))
+# fit or load forecast models
+if (fit_forecasts) {
+  fits <- model_grid %>%
+    mutate(fit = pmap(
+      list(
+        test_year = test_year,
+        model_type = model_type,
+        run_wide = run_wide,
+        delta_returns = delta_returns
+      ),
+      fit_pink_model,
+      # map over candidate models
+      data = data,
+      log_returns = FALSE # log returns
+    ))
+  
+  write_rds(fits, file = file.path(results_path, "fits.rds"))
+  
+  
+  
+  # fit GAMS
+
+  sfpp <- safely(fit_parametric_pinks)
+  
+  
+  gams <-
+    expand_grid(
+      this_stock = unique(pinks$stock),
+      delta_returns = c(FALSE,TRUE),
+      run_wide = c(TRUE,FALSE),
+      test_year = 2010:max(pinks$year)
+    ) 
+  
+  gams <- gams %>%
+    mutate(fit = pmap(
+      list(
+        this_stock = this_stock,
+        run_wide = run_wide,
+        delta_returns = delta_returns,
+        test_year = test_year
+      ),
+      sfpp,
+      data = pinks,
+      refresh = 0
+    ))
+  
+  write_rds(gams, file = file.path(results_path, "gam_fits.rds"))
+  
+  # 
+  # i <- sample(1:nrow(gams),1)
+  # gams$fit[[i]]$result %>%
+  #   ggplot() +
+  #   geom_point(aes(year, returns, color = training)) +
+  #   geom_line(aes(year, pred))
+  # 
+  
+  juvenile_cpue <-
+    expand_grid(this_stock = unique(pinks$stock),
+                test_year = 2010:max(pinks$year)) %>%
+    mutate(fit = pmap(
+      list(this_stock = this_stock, test_year = test_year),
+      fit_parametric_pinks,
+      data = pinks,
+      model = "juvenile_cpue"
+    )) %>% 
+    select(-this_stock)
+  
+  write_rds(juvenile_cpue, file = file.path(results_path, "juvenile_cpue_fits.rds"))
+  
+  
+  
+} else {
+  fits <- read_rds(file = file.path(results_path, "fits.rds"))
+  
+  gams <- read_rds(file = file.path(results_path, "gam_fits.rds"))
+  
+  juvenile_cpue <- read_rds(file = file.path(results_path, "juvenile_cpue_fits.rds"))
+  
+}
+
+region_lookup <- pinks %>% 
+  select(stock, region) %>% 
+  unique()
+
+gams_worked <- map_lgl(map(gams$fit, "error"), is.null)
+
+gams <- gams %>% 
+  filter(gams_worked) %>% 
+  mutate(fit = map(fit, "result")) %>% 
+  unnest(cols = fit) %>% 
+  mutate(model_type = "gam") %>% 
+  rename(stock = this_stock) %>% 
+  mutate(split = ifelse(year >= test_year, "testing", "training")) %>% 
+  left_join(region_lookup, by = "stock") %>% 
+  filter(!(run_wide == TRUE & delta_returns == FALSE))
+
+juvenile_cpue <- juvenile_cpue %>% 
+  unnest(cols = fit) %>% 
+  mutate(split = ifelse(year >= test_year, "testing", "training")) 
+
+# unpack  and prepare results
+results <- fits %>%
+  mutate(tmp = map(fit, "data")) %>%
+  unnest(cols = tmp) %>%
+  mutate(year = lubridate::year(year))
+
+
+
+# generate benchmark model which is just a lag(1) model
+lag_benchmark <- results %>%
+  filter(model_type == "rand_forest") %>%
+  group_by(test_year,region, cycle, stock, run_wide, delta_returns) %>%
+  mutate(pred = lag(returns, 1),
+         model_type = "lag(1)")
+
+# add lag(1) model to candidate models
+results <- results %>%
+  bind_rows(lag_benchmark) %>% 
+  bind_rows(gams) %>% 
+  bind_rows(juvenile_cpue) %>% 
+  separate(stock, sep = "_", into = c("subregion", "cycle")) %>% 
+  mutate(delta_returns = ifelse(delta_returns == TRUE, "delta-returns", "abs-returns"),
+         run_wide = ifelse(run_wide == TRUE,"multi-stock-predictors","single-stock-predictors" ))
+
+
+  
+
+```
+
+The goal of this project was to see if we could make improvements in
+pre-season forecasts of pink salmon (*Oncorhynchus gorbuscha*).
+
+## Historic Performance
+
+For internal purposes, I will briefly go over what evidence I have for
+historic performance as a benchmark.
+
+### SEAK
+
+This section is based on "*Oncorhynchus gorbusch*"Southeast Alaska Pink
+Salmon Growth and Harvest Forecast Models**"** by Murphy *et al.* 2019.
+
+Much of the SEAK forecasting literature seems to focus on forecasting
+*harvest* rather than returns. We haven't focused on that so far, though
+we can, but it seems like it can only be more difficult as you are
+layering the underlying biological uncertainty with economic factors.
+
+Murphy *et al.* 2019 describes a few different performance metrics, all
+of which are surprisingly high for the usual story of "pink salmon are
+hard to forecast."
+
+What is somewhat unclear to me is whether the reported metrics in that
+document are actual one-step-ahead forecasts or are in-sample.
+
+The authors report that a model based on CPUE a temperature index from
+the Icy Straight survey and has an R^2^ of 0.78 . Pulling the data from
+Table 1 and fitting the model myself, I get the same R^2^ when looking
+at the in-sample fits. So, I suspect that that is what is happening
+here, i.e. that high R^2^ is in-sample fit, not one-step ahead
+forecasting.
+
+The authors also report an R^2^ of 0.73 for a model of adult returns to
+Norton Sound and the Yukon River from 2004-2018 as a function of the
+abundance index of juvenile salmon in the northern Bering Sea. Fitting
+the model with the data, I get the same R^2^ so I conclude that that is
+also in-sample, not forecast performance.
+
+Table 3 from "Forecasting Pink Salmon Harvest in Southeast Alaska from
+Juvenile Salmon Abundance and Associated Biophysical Parameters: 2014
+Returns and 2015 Forecast**"** highlight similarly high R^2^ values, but
+I suspect that these are again in-sample values.
+
+Table 4 shows hig-cast jackknife values of average absolute percent
+error in predicting *harvest* across a range of models and report values
+in the range of 30% , though it's not totally clear over what time
+horizon this is.
+
+```{r}
+seak_harvest <- read_csv(here("data","murphy_table_1.csv")) %>% 
+  janitor::clean_names() %>% 
+  map_df(stringr::str_trim) %>% 
+  map_df(as.numeric) %>% 
+    filter(!is.na(ln_cpue_1))
+
+
+seak_harvest_mod <- lm(seak_harvest_millions ~ ln_cpue_1 + isti_c, data = seak_harvest)
+
+seak_harvest_fits <- broom::augment(seak_harvest_mod)
+
+seak_harvest_mod_summary <- broom::glance(seak_harvest_mod)
+
+seak_returns <- read_csv(here("data","murphy_table_4.csv")) %>% 
+  janitor::clean_names() %>% 
+  map_df(stringr::str_trim) %>% 
+  map_df(as.numeric) %>% 
+    filter(!is.na(ln_cpue_plus1))
+
+
+seak_returns_mod <- lm(adult_returns ~ juvenile_index, data = seak_returns)
+
+seak_returns_fits <- broom::augment(seak_returns_mod)
+
+# seak_returns_fits %>% 
+#   ggplot(aes(juvenile_index, adult_returns)) + 
+#   geom_point()
+
+seak_returns_mod_summary <- broom::glance(seak_returns_mod)
+
+```
+
+### KOD
+
+I haven't been able to find a clear summary of the methods and results
+for the Kodiak wild return forecasts. I did find this figure in "Run
+Forecasts and Harvest Projections for 2020 Alaska Salmon Fisheries and
+Review of the 2019 Season", which suggests pretty standard performance
+of these kinds of models (basically bumping along the average)
+
+![](data/kod_forecasts.pdf)
+
+### PWS
+
+PWS appears to use an exponential smoothing method for their
+forecasts,per "2021 Prince William Sound and Copper River Salmon
+Forecast". Table 2 from that report has smoe MAPE, MPE, and absolute
+Bias estimates, but it is unclear over what time horizon that is or the
+methods for those estimates.
+
+![](data/pws.pdf)
+
+## Data
+
+The data I am using are pulled from spreadsheets provided by staff from
+the SEAK, KOD, and PWS regions (@fig-pinks).
+
+```{r}
+#| label: fig-pinks
+#| fig-cap: "Pink salmon returns over time used in models"
+
+
+pinks %>% 
+  ggplot(aes(year, returns, fill = subregion)) + 
+  geom_area() +
+  facet_wrap(~region) + 
+  scale_x_continuous(guide = guide_axis(n.dodge = 2), name = "Year") + 
+  scale_y_continuous(name = "Returns (millions of fish)") + 
+  scale_fill_discrete(name = "Subregion")
+
+
+
+```
+
+I also use data from the juvenile pink salmon index used in the SEAK
+forecasts (@fig-juvs).
+
+```{r}
+#| label: fig-juvs
+#| fig-cap: "Juvenile pink salmon index over time"
+seak_index %>% 
+  filter(!is.na(juvenile_sst)) %>% 
+  ggplot(aes(year, juvenile_index)) + 
+  geom_point(size = 4) + 
+  scale_x_continuous(name = "Year") + 
+  scale_y_continuous(name = "Juvenile Index")
+
+```
+
+## Methods
+
+I tested a wide range of models (random forest, boosted regression
+trees, GAMs, linear regression) with an accompanying range of data
+processing, which I will briefly describe below.
+
+For now, I am running models at the resolution of "subregion" and
+"cycle". So for example I am running one "stock" as NSEI (a subregion of
+SEAK) in even years, another for NSEI in odd years, so on and so forth.
+I chose to do this to increase the sample size for the machine learning
+models, but can easily explore coarser resolution approaches.
+
+### Models
+
+We ran
+
+-   random forest
+
+    -   lots of covariates, fit all stocks simultaneously
+
+-   GAMs
+
+    -   fewer covariates, smoothers on year and juvenile index, 2 lags
+        of either individual stock returns or neighbor stock returns
+
+-   linear model
+
+    -   returns \~ juvenile index
+
+-   Lag(1)
+
+    -   Returns this year equal last observed returns for stock in
+        question
+
+### Juvenile Index
+
+All stocks and methods make use of the juvenile index. I chose to do
+this as there is at least some visual correlation between the juvenile
+index and most of the returns by subregion.
+
+```{r}
+#| label: fig-pink-v-juv
+#| fig-cap: "Visual correlations between juvenile abundance index and returns by subregion"
+pinks %>%
+  filter(!is.na(juvenile_sst)) %>% 
+  ggplot(aes(juvenile_index, returns, color = subregion, fill = subregion)) +
+  geom_point() +
+  geom_smooth(method = "lm", alpha = 0.1) +
+  facet_wrap( ~ region) +
+  scale_x_continuous(guide = guide_axis(n.dodge = 2), name = "Juvenile Index") +
+  scale_y_continuous(name = "Returns (millions of fish)", limits = c(0, NA)) +
+  scale_fill_discrete(name = "Subregion") + 
+    scale_color_discrete(name = "Subregion")
+
+
+
+```
+
+The juvenile index only goes back to the year 2000. While the machine
+learning methods used can handle missing data, standard parametric
+modeling methods cannot. Rather than throwing those data out, I trained
+a simple random forest on predicting the juvenile index as a function of
+subregional returns, and then used that model to predict the juvenile
+index in the years 1960-2000.
+
+### "Run Wide"
+
+Going back to the philosphy of @ovando2022a, one of the key questions we
+wanted to explore here was whether there was benefit from fitting models
+on not just historic returns of a given stock, but using other stocks as
+covariates. So, for example, do returns in KOD tell us anything about
+returns in SEAK.
+
+We ran two sets of models "wide" and "narrow", where "wide" means that
+the model used other candidate stocks besides the stock being forecasted
+as covariates, while "narrow" means that the model only used a given
+stocks' individual history as covariates (along with the juvenile index)
+
+### "Delta Returns"
+
+Another question is whether the models will perform better predicting
+**absolute** returns or the **change** in returns. Since we are only
+interested in one-step-ahead forecasting, changes in returns can be
+appealing since doing so naturally de-means the data. For most of our
+models we ran two versions, one where the models predicted absolute
+returns, and the other where the models predicted change in returns,
+which were then converted back into absolute returns.
+
+## Results
+
+The main takeaway is that while some models did a bit better than
+others, we don't see substantial variation in performance across the
+models, with the exception of the most basic GAM (@fig-raw-fits). All
+performance metrics will be "one-step-ahead" forecasts.
+
+```{r}
+#| label: fig-raw-fits
+#| fig-cap: "One-step-ahead forecast vs. observed results across all models. Color indicates different models"
+
+results %>%
+  unite(col = "model",model_type, run_wide, delta_returns) %>% 
+  filter(year == test_year) %>% 
+  ggplot(aes(pred, returns, color = model, fill = model)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point(alpha = 1, show.legend = FALSE, size = 2) +
+  geom_smooth(method = "lm", alpha = 0.1, show.legend = FALSE) + 
+  coord_cartesian(xlim = c(0, 100)) + 
+  scale_x_continuous(name = "Predicted",limits = c(0, NA)) + 
+  scale_y_continuous(name  = "Observed", limits = c(0, NA))
+
+
+```
+
+For now, we can summarize performance by root mean squared error (RMSE).
+We'll first look at the top performing model by subregion, and then by
+region, compared to the baseline lag(1) model.
+
+```{r}
+
+summary_results <- results %>% 
+  unite("full_model",model_type, delta_returns, run_wide, remove = FALSE)
+  
+
+subregional_baseline <- summary_results %>% 
+  filter(year == test_year) %>% 
+  filter(model_type == "lag(1)", run_wide == "single-stock-predictors", delta_returns== "abs-returns") %>% 
+  group_by(year,subregion, region) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(subregion) %>% 
+  ungroup()
+
+subregional_baseline_metrics <- subregional_baseline %>% 
+  group_by(subregion) %>% 
+  summarise(base_rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            base_mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            base_mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            base_rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+
+
+regional_baseline <- summary_results %>% 
+  filter(year == test_year) %>% 
+  filter(model_type == "lag(1)", run_wide == "single-stock-predictors", delta_returns== "abs-returns") %>% 
+  group_by(year, region) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(region) %>% 
+  ungroup()
+
+regional_baseline_metrics <- regional_baseline %>% 
+  group_by(region) %>% 
+  summarise(base_rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            base_mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            base_mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            base_rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+
+subregion <- summary_results %>% 
+  filter(year == test_year) %>% 
+   group_by(year,subregion, region,full_model) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(subregion) %>% 
+  ungroup()
+
+subregion_performance <- subregion %>% 
+  group_by(full_model, subregion, region) %>% 
+    summarise(rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+region <- summary_results %>% 
+  filter(year == test_year) %>% 
+   group_by(year, region, full_model) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(region) %>% 
+  ungroup()
+
+region_performance <- region %>% 
+  group_by(full_model, region) %>% 
+    summarise(rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+best_subregion_model <- subregion_performance %>% 
+  group_by(subregion) %>% 
+  filter(rmse == min(rmse)) %>% 
+  rename(best_model_type = full_model) %>% 
+  left_join(subregional_baseline_metrics, by = "subregion") 
+
+
+best_region_model <- region_performance %>% 
+  group_by(region) %>% 
+  filter(rmse == min(rmse)) %>% 
+  rename(best_model_type = full_model) %>% 
+  left_join(regional_baseline_metrics, by = "region")
+
+subregion_improvement_plot <- best_subregion_model %>% 
+  mutate(delta = rmse / base_rmse - 1) %>% 
+  ggplot(aes(x = region, y = delta, fill = subregion, group = NA)) + 
+  geom_hline(aes(yintercept = 0), linetype = 2) +
+  ggdist::geom_dots(point_size = 2) + 
+  scale_y_continuous(labels = scales::label_percent(), name = "Change in RMSE") + 
+  scale_x_discrete(name = "Region") 
+
+
+region_improvement_plot <- best_region_model %>% 
+  mutate(delta = rmse / base_rmse - 1) %>% 
+  ggplot(aes(x = region,y = delta)) + 
+  geom_hline(aes(yintercept = 0), linetype = 2) +
+  ggalt::geom_lollipop(aes(fill = best_model_type),point.colour = "black", point.size = 6, shape = 21) + 
+  scale_fill_discrete(name = "")+
+  guides(fill = guide_legend(override.aes = list(size=6))) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 6)) + 
+  scale_y_continuous(labels = scales::label_percent(), name = "Change in RMSE") 
+  
+
+
+subregion_plot <- summary_results %>% 
+  filter(year == test_year) %>% 
+      mutate(cycle = ifelse(year %% 2 == 0, "even", "odd")) %>%
+  left_join(best_subregion_model, by = "subregion") %>%
+  filter(full_model == best_model_type) %>% 
+  ggplot() + 
+  geom_point(aes(year, returns, fill = cycle), size = 2, shape = 21) + 
+  geom_hline(aes(yintercept = 0), linetype = 2)+
+  geom_line(aes(year, pred, color = cycle)) +
+  scale_x_continuous(guide = guide_axis(n.dodge = 2), name = "Year") +
+  scale_y_continuous(limits = c(0, NA), name = "Returns (millions of salmon)") +
+  facet_wrap(~subregion, scales = "free_y")
+
+region_plot <- region %>% 
+    mutate(cycle = ifelse(year %% 2 == 0, "even", "odd")) %>%
+  left_join(best_region_model, by = "region") %>% 
+  filter(full_model == best_model_type) %>% 
+  ggplot() +
+  geom_point(aes(year, returns, fill = cycle), size = 4, shape = 21) + 
+  geom_hline(aes(yintercept = 0), linetype = 2)+
+  geom_line(aes(year, forecast, color = cycle)) +
+  scale_x_continuous(guide = guide_axis(n.dodge = 2), name = "Year") +
+  scale_y_continuous(limits = c(0, NA), name = "Returns (millions of salmon)") +
+  facet_wrap(~region)
+  
+ 
+```
+
+Most subregions saw a reduction in RMSE (relative to the Lag(1)
+benchmark on the order of 10-20 percent, though some stocks such as
+afognak in the KOD region saw an over 50% reduction in RMSE
+(@fig-subregion-improve). The random forest was the best performing
+model at the subregional scale in all cases except for one where the GAM
+fit to delta returns was selected. Overall the models picked up the
+smoother trends in even and odd stocks, but struggled with extreme
+spikes such as those observed in the sse subregion, opting to "split the
+difference".
+
+```{r}
+#| label: fig-subregion-improve
+#| fig-cap: "Change in RMSE of forecasts relative to Lag(1) model by subregion and region."
+#| eval: true
+
+subregion_improvement_plot
+
+
+
+```
+
+```{r}
+#| label: fig-subregion-fits
+#| fig-cap: "Observed (points) and forecast (lines) from the best performing model by subregion"
+
+subregion_plot
+
+
+```
+
+Looking at the total returns by region, we were able to improve on the
+Lag(1) baseline in all cases, but never by more than 20%. The model
+particularly struggled with Kodiak even cycle, opting to split the
+difference between the lower and higher return years
+(@fig-region-improve, @fig-region-fits).
+
+```{r}
+#| label: fig-region-improve
+#| fig-cap: "Change in RMSE of forecasts relative to Lag(1) model by region."
+
+region_improvement_plot
+
+
+
+```
+
+```{r}
+#| label: fig-region-fits
+#| fig-cap: "Observed (points) and forecast (lines) from the best performing model by region"
+
+region_plot
+
+
+```
+
+## Next Steps
+
+Overall, as with the sockeye salmon exercises, more "flexible" modeling
+approaches (random forests, GAMS) provided some improvements,
+particularly when provided with multiple stocks to use as covariates.
+However, we are still seeing modest improvements in RMSE, with the
+models struggling to predict sudden fluctuations such as those seen in
+Kodiak. Perhaps environmental data would help with that, though those
+years do have access to the juvenile index SST data.
+
+My recommended next steps is to set up a meeting with the interested
+parties from each area to show what we have, discuss how to present
+results, and get a sense for how useful this looks to them?
+
+I am not seeing much of a paper here, maybe something about the value of
+cross-stock information in salmon forecasting?
+
+## References
