@@ -491,7 +491,7 @@ npafc <- readxl::read_xls(
 ) %>% 
   janitor::clean_names() %>% 
   pivot_longer(starts_with("x"), names_to = "year", values_to = "number_released", names_prefix = "x", names_transform = list(year = as.integer)) %>% 
-  mutate(number_released = tidyr::replace_na(number_released, 0))
+  mutate(number_released = tidyr::replace_na(number_released, 0) / 1e6)
 
 alaska_hatchery_release <- npafc %>% 
   filter(whole_country_province_state == "Alaska") %>% 
@@ -513,10 +513,12 @@ hatchery_production <- kodiak_hatchery
 
 pinks <- pinks %>% 
   left_join(sst %>% mutate(year = year + 1 ), by = c("region", "year")) %>%  # track sea surface temperature in the year prior to returning
-  left_join(hatchery_production %>% mutate(year = year ) %>% select(-region), by = c("year")) %>% 
-  left_join(pws_hatchery %>%  mutate(year = year + 1 ), by = "year") %>% 
-  ungroup() %>% 
-  left_join(alaska_hatchery_release %>% select(year, number_released) %>% mutate(year = year ), by = c("year"))
+  # left_join(hatchery_production %>% mutate(year = year ) %>% select(-region), by = c("year")) %>% 
+  # left_join(pws_hatchery %>%  mutate(year = year + 1 ), by = "year") %>% 
+  left_join(alaska_hatchery_release %>% select(year, number_released) %>% mutate(year = year ), by = c("year")) %>% 
+  left_join(pdo, by = "year") %>% 
+  ungroup()
+  
 
 
 pinks %>% 
@@ -534,18 +536,18 @@ pinks %>%
   facet_wrap(~cycle)
 
 
-pinks %>% 
-  ggplot(aes(pws_hatchery_returns, returns, color = region, fill = region)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_wrap(~cycle)
+# pinks %>% 
+#   ggplot(aes(pws_hatchery_returns, returns, color = region, fill = region)) + 
+#   geom_point() + 
+#   geom_smooth() + 
+#   facet_wrap(~cycle)
 
-
-pinks %>% 
-  ggplot(aes(hatchery_numbers, returns, color = region, fill = region)) + 
-  geom_point() + 
-  geom_smooth() + 
-  facet_wrap(~cycle)
+# 
+# pinks %>% 
+#   ggplot(aes(hatchery_numbers, returns, color = region, fill = region)) + 
+#   geom_point() + 
+#   geom_smooth() + 
+#   facet_wrap(~cycle)
 
 pinks %>% 
   ggplot(aes(mean_sst, returns, color = region, fill = region)) + 
@@ -591,7 +593,7 @@ left_join(seak_index, by = "year") %>%
 exploratory_model <-
   ranger(
     returns ~ .,
-    data = pinks_tmp %>% select(returns, contains("region"), year, contains("lag_"), contains("juvenile"), mean_sst, hatchery_numbers),
+    data = pinks_tmp %>% select(returns, contains("region"), year, contains("lag_"), contains("juvenile"), mean_sst, number_released),
     importance = "impurity_corrected"
   )
 

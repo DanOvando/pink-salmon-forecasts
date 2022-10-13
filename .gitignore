@@ -6,6 +6,7 @@
 *.docx
 *.doc
 data/*
+*.zip
 !/data/README
 results/*
 !/results/README
