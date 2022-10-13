@@ -113,7 +113,6 @@ fit_pink_model <- function(test_year,
   }
   
   
-  
   salmon_recipe <-
     recipe(returns ~ ., data = data) %>%
     {
@@ -290,12 +289,11 @@ fit_pink_model <- function(test_year,
   
   baked_data <-
     bake(tmp_prep, new_data = data %>% group_by(stock))
-  
   if (run_wide) {
     baked_data <- make_wide_pinks(baked_data, data$stock)
     
   }
-  
+
   pred <-
     predict(trained_model, new_data = baked_data)
   

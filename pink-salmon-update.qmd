@@ -12,7 +12,7 @@ execute:
   warning: false
 bibliography: references.bib
 params:
-  run: "v0.3"
+  run: "v0.5"
   fit_forecasts: FALSE
 ---
 
