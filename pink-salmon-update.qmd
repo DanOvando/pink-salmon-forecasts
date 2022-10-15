@@ -423,53 +423,29 @@ results <- results %>%
 
 ```
 
-The goal of this project was to see if we could make improvements in
-pre-season forecasts of pink salmon (*Oncorhynchus gorbuscha*).
+The goal of this project was to see if we could make improvements in pre-season forecasts of pink salmon (*Oncorhynchus gorbuscha*).
 
 ## Historic Performance
 
-For internal purposes, I will briefly go over what evidence I have for
-historic performance as a benchmark.
+For internal purposes, I will briefly go over what evidence I have for historic performance as a benchmark.
 
 ### SEAK
 
-This section is based on "*Oncorhynchus gorbusch*"Southeast Alaska Pink
-Salmon Growth and Harvest Forecast Models**"** by Murphy *et al.* 2019.
+This section is based on "*Oncorhynchus gorbusch*"Southeast Alaska Pink Salmon Growth and Harvest Forecast Models**"** by Murphy *et al.* 2019.
 
-Much of the SEAK forecasting literature seems to focus on forecasting
-*harvest* rather than returns. We haven't focused on that so far, though
-we can, but it seems like it can only be more difficult as you are
-layering the underlying biological uncertainty with economic factors.
+Much of the SEAK forecasting literature seems to focus on forecasting *harvest* rather than returns. We haven't focused on that so far, though we can, but it seems like it can only be more difficult as you are layering the underlying biological uncertainty with economic factors.
 
-Murphy *et al.* 2019 describes a few different performance metrics, all
-of which are surprisingly high for the usual story of "pink salmon are
-hard to forecast."
+Murphy *et al.* 2019 describes a few different performance metrics, all of which are surprisingly high for the usual story of "pink salmon are hard to forecast."
 
-What is somewhat unclear to me is whether the reported metrics in that
-document are actual one-step-ahead forecasts or are in-sample.
+What is somewhat unclear to me is whether the reported metrics in that document are actual one-step-ahead forecasts or are in-sample.
 
-The authors report that a model based on CPUE a temperature index from
-the Icy Straight survey and has an R^2^ of 0.78 . Pulling the data from
-Table 1 and fitting the model myself, I get the same R^2^ when looking
-at the in-sample fits. So, I suspect that that is what is happening
-here, i.e. that high R^2^ is in-sample fit, not one-step ahead
-forecasting.
+The authors report that a model based on CPUE a temperature index from the Icy Straight survey and has an R^2^ of 0.78 . Pulling the data from Table 1 and fitting the model myself, I get the same R^2^ when looking at the in-sample fits. So, I suspect that that is what is happening here, i.e. that high R^2^ is in-sample fit, not one-step ahead forecasting.
 
-The authors also report an R^2^ of 0.73 for a model of adult returns to
-Norton Sound and the Yukon River from 2004-2018 as a function of the
-abundance index of juvenile salmon in the northern Bering Sea. Fitting
-the model with the data, I get the same R^2^ so I conclude that that is
-also in-sample, not forecast performance.
+The authors also report an R^2^ of 0.73 for a model of adult returns to Norton Sound and the Yukon River from 2004-2018 as a function of the abundance index of juvenile salmon in the northern Bering Sea. Fitting the model with the data, I get the same R^2^ so I conclude that that is also in-sample, not forecast performance.
 
-Table 3 from "Forecasting Pink Salmon Harvest in Southeast Alaska from
-Juvenile Salmon Abundance and Associated Biophysical Parameters: 2014
-Returns and 2015 Forecast**"** highlight similarly high R^2^ values, but
-I suspect that these are again in-sample values.
+Table 3 from "Forecasting Pink Salmon Harvest in Southeast Alaska from Juvenile Salmon Abundance and Associated Biophysical Parameters: 2014 Returns and 2015 Forecast**"** highlight similarly high R^2^ values, but I suspect that these are again in-sample values.
 
-Table 4 shows hig-cast jackknife values of average absolute percent
-error in predicting *harvest* across a range of models and report values
-in the range of 30% , though it's not totally clear over what time
-horizon this is.
+Table 4 shows hig-cast jackknife values of average absolute percent error in predicting *harvest* across a range of models and report values in the range of 30% , though it's not totally clear over what time horizon this is.
 
 ```{r}
 seak_harvest <- read_csv(here("data","murphy_table_1.csv")) %>% 
@@ -506,28 +482,19 @@ seak_returns_mod_summary <- broom::glance(seak_returns_mod)
 
 ### KOD
 
-I haven't been able to find a clear summary of the methods and results
-for the Kodiak wild return forecasts. I did find this figure in "Run
-Forecasts and Harvest Projections for 2020 Alaska Salmon Fisheries and
-Review of the 2019 Season", which suggests pretty standard performance
-of these kinds of models (basically bumping along the average)
+I haven't been able to find a clear summary of the methods and results for the Kodiak wild return forecasts. I did find this figure in "Run Forecasts and Harvest Projections for 2020 Alaska Salmon Fisheries and Review of the 2019 Season", which suggests pretty standard performance of these kinds of models (basically bumping along the average)
 
 ![](data/kod_forecasts.pdf)
 
 ### PWS
 
-PWS appears to use an exponential smoothing method for their
-forecasts,per "2021 Prince William Sound and Copper River Salmon
-Forecast". Table 2 from that report has smoe MAPE, MPE, and absolute
-Bias estimates, but it is unclear over what time horizon that is or the
-methods for those estimates.
+PWS appears to use an exponential smoothing method for their forecasts,per "2021 Prince William Sound and Copper River Salmon Forecast". Table 2 from that report has smoe MAPE, MPE, and absolute Bias estimates, but it is unclear over what time horizon that is or the methods for those estimates.
 
 ![](data/pws.pdf)
 
 ## Data
 
-The data I am using are pulled from spreadsheets provided by staff from
-the SEAK, KOD, and PWS regions (@fig-pinks).
+The data I am using are pulled from spreadsheets provided by staff from the SEAK, KOD, and PWS regions (@fig-pinks).
 
 ```{r}
 #| label: fig-pinks
@@ -546,8 +513,7 @@ pinks %>%
 
 ```
 
-I also use data from the juvenile pink salmon index used in the SEAK
-forecasts (@fig-juvs).
+I also use data from the juvenile pink salmon index used in the SEAK forecasts (@fig-juvs).
 
 ```{r}
 #| label: fig-juvs
@@ -563,15 +529,9 @@ seak_index %>%
 
 ## Methods
 
-I tested a wide range of models (random forest, boosted regression
-trees, GAMs, linear regression) with an accompanying range of data
-processing, which I will briefly describe below.
+I tested a wide range of models (random forest, boosted regression trees, GAMs, linear regression) with an accompanying range of data processing, which I will briefly describe below.
 
-For now, I am running models at the resolution of "subregion" and
-"cycle". So for example I am running one "stock" as NSEI (a subregion of
-SEAK) in even years, another for NSEI in odd years, so on and so forth.
-I chose to do this to increase the sample size for the machine learning
-models, but can easily explore coarser resolution approaches.
+For now, I am running models at the resolution of "subregion" and "cycle". So for example I am running one "stock" as NSEI (a subregion of SEAK) in even years, another for NSEI in odd years, so on and so forth. I chose to do this to increase the sample size for the machine learning models, but can easily explore coarser resolution approaches.
 
 ### Models
 
@@ -583,8 +543,7 @@ We ran
 
 -   GAMs
 
-    -   fewer covariates, smoothers on year and juvenile index, 2 lags
-        of either individual stock returns or neighbor stock returns
+    -   fewer covariates, smoothers on year and juvenile index, 2 lags of either individual stock returns or neighbor stock returns
 
 -   linear model
 
@@ -592,14 +551,11 @@ We ran
 
 -   Lag(1)
 
-    -   Returns this year equal last observed returns for stock in
-        question
+    -   Returns this year equal last observed returns for stock in question
 
 ### Juvenile Index
 
-All stocks and methods make use of the juvenile index. I chose to do
-this as there is at least some visual correlation between the juvenile
-index and most of the returns by subregion.
+All stocks and methods make use of the juvenile index. I chose to do this as there is at least some visual correlation between the juvenile index and most of the returns by subregion.
 
 ```{r}
 #| label: fig-pink-v-juv
@@ -619,46 +575,27 @@ pinks %>%
 
 ```
 
-The juvenile index only goes back to the year 2000. While the machine
-learning methods used can handle missing data, standard parametric
-modeling methods cannot. Rather than throwing those data out, I trained
-a simple random forest on predicting the juvenile index as a function of
-subregional returns, and then used that model to predict the juvenile
-index in the years 1960-2000.
+The juvenile index only goes back to the year 2000. While the machine learning methods used can handle missing data, standard parametric modeling methods cannot. Rather than throwing those data out, I trained a simple random forest on predicting the juvenile index as a function of subregional returns, and then used that model to predict the juvenile index in the years 1960-2000.
 
 ### "Run Wide"
 
-Going back to the philosphy of @ovando2022a, one of the key questions we
-wanted to explore here was whether there was benefit from fitting models
-on not just historic returns of a given stock, but using other stocks as
-covariates. So, for example, do returns in KOD tell us anything about
-returns in SEAK.
+Going back to the philosphy of @ovando2022a, one of the key questions we wanted to explore here was whether there was benefit from fitting models on not just historic returns of a given stock, but using other stocks as covariates. So, for example, do returns in KOD tell us anything about returns in SEAK.
 
-We ran two sets of models "wide" and "narrow", where "wide" means that
-the model used other candidate stocks besides the stock being forecasted
-as covariates, while "narrow" means that the model only used a given
-stocks' individual history as covariates (along with the juvenile index)
+We ran two sets of models "wide" and "narrow", where "wide" means that the model used other candidate stocks besides the stock being forecasted as covariates, while "narrow" means that the model only used a given stocks' individual history as covariates (along with the juvenile index)
 
 ### "Delta Returns"
 
-Another question is whether the models will perform better predicting
-**absolute** returns or the **change** in returns. Since we are only
-interested in one-step-ahead forecasting, changes in returns can be
-appealing since doing so naturally de-means the data. For most of our
-models we ran two versions, one where the models predicted absolute
-returns, and the other where the models predicted change in returns,
-which were then converted back into absolute returns.
+Another question is whether the models will perform better predicting **absolute** returns or the **change** in returns. Since we are only interested in one-step-ahead forecasting, changes in returns can be appealing since doing so naturally de-means the data. For most of our models we ran two versions, one where the models predicted absolute returns, and the other where the models predicted change in returns, which were then converted back into absolute returns.
 
 ## Results
 
-The main takeaway is that while some models did a bit better than
-others, we don't see substantial variation in performance across the
-models, with the exception of the most basic GAM (@fig-raw-fits). All
-performance metrics will be "one-step-ahead" forecasts.
+The main takeaway is that while some models did a bit better than others, we don't see substantial variation in performance across the models, with the exception of the most basic GAM (@fig-raw-fits). All performance metrics will be "one-step-ahead" forecasts.
 
 ```{r}
 #| label: fig-raw-fits
 #| fig-cap: "One-step-ahead forecast vs. observed results across all models. Color indicates different models"
+
+results$pred <- pmax(0, results$pred)
 
 results %>%
   unite(col = "model",model_type, run_wide, delta_returns) %>% 
@@ -674,15 +611,13 @@ results %>%
 
 ```
 
-For now, we can summarize performance by root mean squared error (RMSE).
-We'll first look at the top performing model by subregion, and then by
-region, compared to the baseline lag(1) model.
+For now, we can summarize performance by root mean squared error (RMSE). We'll first look at the top performing model by subregion, and then by region, compared to the baseline lag(1) model.
 
 ```{r}
 
 summary_results <- results %>% 
   unite("full_model",model_type, delta_returns, run_wide, remove = FALSE)
-  
+
 
 subregional_baseline <- summary_results %>% 
   filter(year == test_year) %>% 
@@ -716,13 +651,19 @@ regional_baseline_metrics <- regional_baseline %>%
             base_mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
             base_rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
 
-
 subregion <- summary_results %>% 
   filter(year == test_year) %>% 
    group_by(year,subregion, region,full_model) %>% 
   summarise(returns = sum(returns), forecast = sum(pred)) %>% 
   arrange(subregion) %>% 
   ungroup()
+
+subregion %>% 
+  filter(subregion == "nsei") %>% 
+  ggplot(aes(forecast, returns)) + 
+  geom_point()+
+  facet_wrap(~full_model)
+
 
 subregion_performance <- subregion %>% 
   group_by(full_model, subregion, region) %>% 
@@ -748,6 +689,7 @@ region_performance <- region %>%
 best_subregion_model <- subregion_performance %>% 
   group_by(subregion) %>% 
   filter(rmse == min(rmse)) %>% 
+  slice(1) %>% 
   rename(best_model_type = full_model) %>% 
   left_join(subregional_baseline_metrics, by = "subregion") 
 
@@ -755,6 +697,7 @@ best_subregion_model <- subregion_performance %>%
 best_region_model <- region_performance %>% 
   group_by(region) %>% 
   filter(rmse == min(rmse)) %>% 
+  slice(1) %>% 
   rename(best_model_type = full_model) %>% 
   left_join(regional_baseline_metrics, by = "region")
 
@@ -781,12 +724,14 @@ region_improvement_plot <- best_region_model %>%
 
 
 subregion_plot <- summary_results %>% 
+  ungroup() %>% 
   filter(year == test_year) %>% 
       mutate(cycle = ifelse(year %% 2 == 0, "even", "odd")) %>%
   left_join(best_subregion_model, by = "subregion") %>%
+  ungroup() %>% 
   filter(full_model == best_model_type) %>% 
   ggplot() + 
-  geom_point(aes(year, returns, fill = cycle), size = 2, shape = 21) + 
+  geom_point(aes(year, returns, fill = cycle), size = 2, shape = 21) +
   geom_hline(aes(yintercept = 0), linetype = 2)+
   geom_line(aes(year, pred, color = cycle)) +
   scale_x_continuous(guide = guide_axis(n.dodge = 2), name = "Year") +
@@ -808,15 +753,7 @@ region_plot <- region %>%
  
 ```
 
-Most subregions saw a reduction in RMSE (relative to the Lag(1)
-benchmark on the order of 10-20 percent, though some stocks such as
-afognak in the KOD region saw an over 50% reduction in RMSE
-(@fig-subregion-improve). The random forest was the best performing
-model at the subregional scale in all cases except for one where the GAM
-fit to delta returns was selected. Overall the models picked up the
-smoother trends in even and odd stocks, but struggled with extreme
-spikes such as those observed in the sse subregion, opting to "split the
-difference".
+Most subregions saw a reduction in RMSE (relative to the Lag(1) benchmark on the order of 10-20 percent, though some stocks such as afognak in the KOD region saw an over 50% reduction in RMSE (@fig-subregion-improve). The random forest was the best performing model at the subregional scale in all cases except for one where the GAM fit to delta returns was selected. Overall the models picked up the smoother trends in even and odd stocks, but struggled with extreme spikes such as those observed in the sse subregion, opting to "split the difference".
 
 ```{r}
 #| label: fig-subregion-improve
@@ -838,11 +775,7 @@ subregion_plot
 
 ```
 
-Looking at the total returns by region, we were able to improve on the
-Lag(1) baseline in all cases, but never by more than 20%. The model
-particularly struggled with Kodiak even cycle, opting to split the
-difference between the lower and higher return years
-(@fig-region-improve, @fig-region-fits).
+Looking at the total returns by region, we were able to improve on the Lag(1) baseline in all cases, but never by more than 20%. The model particularly struggled with Kodiak even cycle, opting to split the difference between the lower and higher return years (@fig-region-improve, @fig-region-fits).
 
 ```{r}
 #| label: fig-region-improve
@@ -865,19 +798,10 @@ region_plot
 
 ## Next Steps
 
-Overall, as with the sockeye salmon exercises, more "flexible" modeling
-approaches (random forests, GAMS) provided some improvements,
-particularly when provided with multiple stocks to use as covariates.
-However, we are still seeing modest improvements in RMSE, with the
-models struggling to predict sudden fluctuations such as those seen in
-Kodiak. Perhaps environmental data would help with that, though those
-years do have access to the juvenile index SST data.
+Overall, as with the sockeye salmon exercises, more "flexible" modeling approaches (random forests, GAMS) provided some improvements, particularly when provided with multiple stocks to use as covariates. However, we are still seeing modest improvements in RMSE, with the models struggling to predict sudden fluctuations such as those seen in Kodiak. Perhaps environmental data would help with that, though those years do have access to the juvenile index SST data.
 
-My recommended next steps is to set up a meeting with the interested
-parties from each area to show what we have, discuss how to present
-results, and get a sense for how useful this looks to them?
+My recommended next steps is to set up a meeting with the interested parties from each area to show what we have, discuss how to present results, and get a sense for how useful this looks to them?
 
-I am not seeing much of a paper here, maybe something about the value of
-cross-stock information in salmon forecasting?
+I am not seeing much of a paper here, maybe something about the value of cross-stock information in salmon forecasting?
 
 ## References
