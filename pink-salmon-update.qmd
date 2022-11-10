@@ -716,6 +716,23 @@ regional_baseline_metrics <- regional_baseline %>%
             base_mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
             base_rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
 
+regional_cycle_baseline <- summary_results %>% 
+  filter(year == test_year) %>% 
+  filter(model_type == "lag(1)", run_wide == "single-stock-predictors", delta_returns== "abs-returns") %>% 
+  group_by(year, region, cycle) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(region) %>% 
+  ungroup()
+
+regional_cycle_baseline_metrics <- regional_cycle_baseline %>% 
+  group_by(region, cycle) %>% 
+  summarise(base_rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            base_mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            base_mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            base_rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+
+
 
 subregion <- summary_results %>% 
   filter(year == test_year) %>% 
@@ -738,12 +755,27 @@ region <- summary_results %>%
   arrange(region) %>% 
   ungroup()
 
+region_cycle <- summary_results %>% 
+  filter(year == test_year) %>% 
+   group_by(year, region, full_model, cycle) %>% 
+  summarise(returns = sum(returns), forecast = sum(pred)) %>% 
+  arrange(region) %>% 
+  ungroup()
+
 region_performance <- region %>% 
   group_by(full_model, region) %>% 
     summarise(rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
             mape = yardstick::mape_vec(truth = returns, estimate = forecast),
             mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
             rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
+region_cycle_performance <- region_cycle %>% 
+  group_by(full_model, cycle,region) %>% 
+    summarise(rmse = yardstick::rmse_vec(truth = returns, estimate = forecast),
+            mape = yardstick::mape_vec(truth = returns, estimate = forecast),
+            mpe = yardstick::mpe_vec(truth = returns, estimate = forecast),
+            rsq = yardstick::rsq_vec(truth = returns, estimate = forecast))
+
 
 best_subregion_model <- subregion_performance %>% 
   group_by(subregion) %>% 
@@ -758,6 +790,14 @@ best_region_model <- region_performance %>%
   rename(best_model_type = full_model) %>% 
   left_join(regional_baseline_metrics, by = "region")
 
+
+best_region_cycle_model <- region_cycle_performance %>% 
+  group_by(region, cycle) %>% 
+  filter(rmse == min(rmse)) %>% 
+  rename(best_model_type = full_model) %>% 
+  left_join(regional_cycle_baseline_metrics, by = c("region", 'cycle'))
+
+
 subregion_improvement_plot <- best_subregion_model %>% 
   mutate(delta = rmse / base_rmse - 1) %>% 
   ggplot(aes(x = region, y = delta, fill = subregion, group = NA)) + 
@@ -769,6 +809,20 @@ subregion_improvement_plot <- best_subregion_model %>%
 
 region_improvement_plot <- best_region_model %>% 
   mutate(delta = rmse / base_rmse - 1) %>% 
+  ggplot(aes(x = region,y = delta)) + 
+  geom_hline(aes(yintercept = 0), linetype = 2) +
+  ggalt::geom_lollipop(aes(fill = best_model_type),point.colour = "black", point.size = 6, shape = 21) + 
+  scale_fill_discrete(name = "")+
+  guides(fill = guide_legend(override.aes = list(size=6))) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 6)) + 
+  scale_y_continuous(labels = scales::label_percent(), name = "Change in RMSE") 
+  
+
+region_cycle_improvement_plot <- best_region_cycle_model %>% 
+  ungroup() %>% 
+  mutate(delta = rmse / base_rmse - 1, 
+         region = paste(region, cycle, sep = "-")) %>% 
   ggplot(aes(x = region,y = delta)) + 
   geom_hline(aes(yintercept = 0), linetype = 2) +
   ggalt::geom_lollipop(aes(fill = best_model_type),point.colour = "black", point.size = 6, shape = 21) + 
