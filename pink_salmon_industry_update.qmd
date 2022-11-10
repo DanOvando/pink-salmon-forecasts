@@ -1,0 +1,19 @@
+---
+title: "Pink Salmon Forecasting Update"
+format: docx
+editor: visual
+---
+
+Over the last three years the UW-ASP group developed new methods based
+on modern tools such as machine learning to increase our capability of
+incorporating environmental data as well as the effects of other salmon
+species and stocks that interact with Bristol Bay sockeye to improve
+preseason forecast accuracy.  We are now applying these methods to
+explore their potential for improving preseason forecasts of pink salmon
+in Alaska, specifically in Southeast Alaska (SEA), Prince William Sound
+(PWS), and Kodiak (KOD) regions.
+
+We gathered data on historic pink salmon returns in even and odd years
+across eleven sub-regions within the three main regions of SEA, PWS, and
+KOD. We augmented these data with environmental data such as sea surface
+temperatur e
