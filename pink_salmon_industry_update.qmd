@@ -15,5 +15,19 @@ in Alaska, specifically in Southeast Alaska (SEA), Prince William Sound
 
 We gathered data on historic pink salmon returns in even and odd years
 across eleven sub-regions within the three main regions of SEA, PWS, and
-KOD. We augmented these data with environmental data such as sea surface
-temperatur e
+KOD. We augmented these pink salmon data with sea surface temperature in
+targeted regions of the Gulf of Alaska, Pacific Decadal Oscillation
+data, hatchery releases from the NPAFC, the SECM survey juvenile index,
+and the Icy Strait sea surface temperature index from thee SECM survey.
+
+We then trained a range of models on these data and assessed how well
+they performed relative to a benchmark "persistence" model, where the
+forecast for returns for a given stock this year are equal to the
+observed returns of that stock the prior year.
+
+We found promising but variable results; our models reduced pre-season
+forecast error by as little as 0% (PWS) and as much as 25% (KOD). We are
+currently working with local forecasting teams to assess our results and
+determine the best way to interpret and communicate our results, and
+where appropriate incorporate them into pre-season pink salmon
+forecasts.
