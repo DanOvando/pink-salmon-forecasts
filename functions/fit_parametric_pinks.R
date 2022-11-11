@@ -71,7 +71,7 @@ fit_parametric_pinks <-
         
       }
 
-      stock_data$year <- stock_data$year -2000
+      stock_data$year <- stock_data$year - 2000 # no idea why
       
       if (delta_returns) {
         pink_gam <-
@@ -142,22 +142,6 @@ fit_parametric_pinks <-
         
       } # close delta returns
       
-      #
-      # test %>%
-      #   ggplot(aes(year, .prediction)) +
-      #   stat_lineribbon()
-      
-      # pp <- posterior_predict(pink_gam, newdata = stock_data) %>%
-      #   as_tibble() %>%
-      #   map_df(mean)
-      #
-      # stock_data$pp <- as.numeric(pp[1,])
-      # browser()
-      #
-      # stock_forecasts %>%
-      #   ggplot() +
-      #   geom_point(aes(year, returns, color = training)) +
-      #   geom_line(aes(year, pred))
       
     } else if (model == "juvenile_cpue") {
       stock_data <- stock_data %>%

@@ -40,9 +40,9 @@ library(ranger) # random forests
 
 library(rstanarm) # bayesian linear models
 
-library(sf)
+library(sf) # spatial fun
 
-library(rerddap)
+library(rerddap) # environmental data
 
 cores <- 8 # cores for parallel processing
 
@@ -66,8 +66,6 @@ fit_forecasts <- FALSE # fit forecasts or load saved run
 regionalize <- FALSE
 
 theme_set(theme_minimal(base_size = 18)) # set theme for plots
-
-
 
 
 
@@ -375,6 +373,8 @@ if (get_environmental_data == TRUE) {
   
   
   
+  # this step is very manual. Creating seperate polygons for SEAK vs PWS/KOD
+  
   shallow_kodiak_pws <- sf::st_join(kodiak_pws_erddap$erdHadISST$data %>% filter(!is.na(sst)), shallow) %>% 
     filter(!is.na(elev)) %>% 
     mutate(month = lubridate::month(time),
@@ -548,20 +548,6 @@ pinks %>%
   geom_smooth() + 
   facet_wrap(~cycle)
 
-
-# pinks %>% 
-#   ggplot(aes(pws_hatchery_returns, returns, color = region, fill = region)) + 
-#   geom_point() + 
-#   geom_smooth() + 
-#   facet_wrap(~cycle)
-
-# 
-# pinks %>% 
-#   ggplot(aes(hatchery_numbers, returns, color = region, fill = region)) + 
-#   geom_point() + 
-#   geom_smooth() + 
-#   facet_wrap(~cycle)
-
 pinks %>% 
   ggplot(aes(mean_sst, returns, color = region, fill = region)) + 
   geom_point() + 
@@ -623,9 +609,9 @@ data <- pinks %>%
 model_grid <-
   tidyr::expand_grid(
     test_year = 2010:max(pinks$year),
-    model_type = c("rand_forest"),
-    delta_returns = c(FALSE,TRUE),
-    run_wide = c(TRUE, FALSE)
+    model_type = c("rand_forest","boost_tree"),
+    delta_returns = c(FALSE,TRUE), # predict absolute or change in returns
+    run_wide = c(TRUE, FALSE) # usse all stocks ass predictors or not
   )
 
 pinks$stock <- paste(pinks$subregion, pinks$cycle, sep = "_")
@@ -650,9 +636,8 @@ if (fit_forecasts) {
   write_rds(fits, file = file.path(results_path, "fits.rds"))
   
   
-  
   # fit GAMS
-
+  # these are intended as a middle ground between the machine learning and lag(1)
   sfpp <- safely(fit_parametric_pinks)
   
   
@@ -679,13 +664,13 @@ if (fit_forecasts) {
   
   write_rds(gams, file = file.path(results_path, "gam_fits.rds"))
   
-  # 
-  # i <- sample(1:nrow(gams),1)
-  # gams$fit[[i]]$result %>%
-  #   ggplot() +
-  #   geom_point(aes(year, returns, color = training)) +
-  #   geom_line(aes(year, pred))
-  # 
+
+  i <- sample(1:nrow(gams),1)
+  gams$fit[[i]]$result %>%
+    ggplot() +
+    geom_point(aes(year, returns, color = training)) +
+    geom_line(aes(year, pred))
+
   
   juvenile_cpue <-
     expand_grid(this_stock = unique(pinks$stock),
